@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Home Inventory Checker v1.2</title>
+  <title>Home Inventory Checker</title>
   <style>
     :root { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; }
     body { margin: 0; background:#0b1220; color:#e6ecff; }
@@ -33,7 +33,7 @@
 <body>
   <div class="wrap">
     <header>
-      <h1>🏠 Home Inventory Checker <span style="font-size:14px; opacity:.7;">v1.2</span></h1>
+      <h1>🏠 Home Inventory Checker</h1>
       <div class="row">
         <button id="startBtn">Start</button>
         <button id="stopBtn" disabled>Stop</button>
@@ -67,39 +67,15 @@
         <h3 style="margin-top:0">Item List</h3>
         <p class="muted">One per line. Edit, then <strong>Save</strong>.</p>
         <textarea id="itemsInput" rows="12"></textarea>
-        <div class="row" style="margin-top:8px; justify-content:space-between; flex-wrap:wrap;">
+        <div class="row" style="margin-top:8px; justify-content:space-between;">
           <button id="saveItemsBtn">Save List</button>
           <label class="muted" style="display:flex; gap:6px; align-items:center;">
             <input type="checkbox" id="voiceToggle" /> Voice on
           </label>
         </div>
-        <hr style="border:none; border-top:1px solid #243359; margin:12px 0;">
-        <h4 style="margin:8px 0 6px">CSV Options</h4>
-        <div class="row" style="gap:8px;">
-          <input id="itemsCsvFile" type="file" accept=".csv" />
-          <button id="importCsvBtn">Import CSV</button>
-        </div>
-        <div class="row" style="gap:8px; margin-top:8px;">
-          <input id="itemsCsvUrl" placeholder="https://your-domain/items.csv (GitHub Pages OK)" />
-          <button id="loadCsvUrlBtn">Load from URL</button>
-        </div>
-        <div class="row" style="gap:8px; margin-top:8px;">
-          <button id="downloadItemsCsvBtn">Download Items CSV</button>
-        </div>
-        <p class="muted" style="margin-top:8px;">Tip: Host <code>items.csv</code> in a GitHub repo and enable GitHub Pages; paste the CSV URL here and click <em>Load from URL</em>.</p>
+        <p class="muted">Tip: you can paste a checklist here (e.g., pantry staples, emergency kit, cleaning supplies).</p>
       </aside>
     </div>
-
-    <section class="card" style="margin-top:16px;">
-      <h3 style="margin-top:0">Ask About an Item</h3>
-      <p class="muted">Type or speak the item name. I’ll answer based on your latest check or say if it’s not on the list.</p>
-      <div class="row" style="align-items:center; gap:8px;">
-        <input id="askInput" placeholder="e.g., AA batteries" />
-        <button id="askBtn">Ask</button>
-        <button id="askMicBtn" title="Ask by voice">🎤</button>
-      </div>
-      <div id="askOutput" class="muted" style="margin-top:8px; min-height: 1.5em;">—</div>
-    </section>
 
     <section class="card" style="margin-top:16px;">
       <div class="row" style="justify-content:space-between; align-items:center;">
@@ -163,17 +139,10 @@
   }
 
   function loadItems(){
-    try {
-      const raw = localStorage.getItem(LS_ITEMS_KEY);
-      const parsed = raw ? JSON.parse(raw) : null;
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      return defaultItems.slice();
-    } catch { return defaultItems.slice(); }
+    const raw = localStorage.getItem(LS_ITEMS_KEY);
+    return raw ? JSON.parse(raw) : defaultItems;
   }
-  function saveItems(list){
-    const clean = Array.from(new Set(list.map(s => String(s||'').trim()).filter(Boolean)));
-    localStorage.setItem(LS_ITEMS_KEY, JSON.stringify(clean));
-  }
+  function saveItems(list){ localStorage.setItem(LS_ITEMS_KEY, JSON.stringify(list)); }
 
   function loadResults(){
     const raw = localStorage.getItem(LS_RESULTS_KEY);
@@ -196,23 +165,13 @@
   const resultsTableBody = document.querySelector('#resultsTable tbody');
   const tsEl = document.getElementById('timestamp');
   const voiceToggle = document.getElementById('voiceToggle');
-  const askInput = document.getElementById('askInput');
-  const askBtn = document.getElementById('askBtn');
-  const askMicBtn = document.getElementById('askMicBtn');
-  const askOutput = document.getElementById('askOutput');
-  const itemsCsvFile = document.getElementById('itemsCsvFile');
-  const importCsvBtn = document.getElementById('importCsvBtn');
-  const itemsCsvUrl = document.getElementById('itemsCsvUrl');
-  const loadCsvUrlBtn = document.getElementById('loadCsvUrlBtn');
-  const downloadItemsCsvBtn = document.getElementById('downloadItemsCsvBtn');
 
   // --- State ---
   let items = loadItems();
   let results = loadResults();
   let idx = -1;
   let listening = false;
-  let recognition = null; // for checklist flow
-  let queryRecognition = null; // for Q&A flow
+  let recognition = null;
 
   function fmtNow(){ return new Date().toLocaleString(); }
 
@@ -250,17 +209,10 @@
     skipBtn.disabled = !run;
   }
 
-  function speak(text){
-    if (voiceToggle.checked && 'speechSynthesis' in window){
-      const u = new SpeechSynthesisUtterance(text);
-      speechSynthesis.cancel();
-      speechSynthesis.speak(u);
-    }
-  }
   function ask(text){
     currentItemEl.textContent = text;
-    speak(`Do you have ${text}?`);
-  }?`);
+    if (voiceToggle.checked && 'speechSynthesis' in window){
+      const u = new SpeechSynthesisUtterance(`Do you have ${text}?`);
       speechSynthesis.cancel();
       speechSynthesis.speak(u);
     }
@@ -320,27 +272,12 @@
         nextItem();
       } else {
         statusEl.textContent = 'didn\'t catch that (say yes / no / skip)';
+        // briefly listen again
         restartListeningSoon();
       }
     };
     r.onerror = () => { statusEl.textContent = 'speech error'; restartListeningSoon(); };
     r.onend = () => { listening = false; };
-    return r;
-  }
-
-  function setupQueryRecognition(){
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) return null;
-    const r = new SR();
-    r.lang = 'en-US';
-    r.interimResults = false;
-    r.maxAlternatives = 1;
-    r.continuous = false;
-    r.onresult = (ev) => {
-      const raw = ev.results[0][0].transcript.trim();
-      askInput.value = raw;
-      handleAsk();
-    };
     return r;
   }
 
@@ -380,6 +317,7 @@
   voiceToggle.checked = !!voiceEnabled;
   voiceToggle.addEventListener('change', saveSettings);
 
+  itemsInput.value = '';
   renderItemsInput();
   renderResults();
   renderTimestamp();
@@ -389,50 +327,7 @@
   exportBtn.addEventListener('click', exportCSV);
 
   saveItemsBtn.addEventListener('click', () => {
-    const list = itemsInput.value.split(/
-/).map(s => s.trim()).filter(Boolean);
-    items = list.length ? list : defaultItems.slice();
-    saveItems(items);
-    renderItemsInput();
-    alert('Item list saved.');
-  });
-
-  // --- CSV helpers ---
-  function parseCsvItems(text){
-    return text.split(/?
-/).map(line => line.split(',')[0]).map(s => s.trim()).filter(Boolean);
-  }
-  importCsvBtn.addEventListener('click', async () => {
-    const file = itemsCsvFile.files && itemsCsvFile.files[0];
-    if (!file) { alert('Choose a CSV file first.'); return; }
-    const text = await file.text();
-    const list = parseCsvItems(text);
-    if (!list.length){ alert('No items found in CSV.'); return; }
-    items = list; saveItems(items); renderItemsInput(); alert('Imported items from CSV.');
-  });
-  loadCsvUrlBtn.addEventListener('click', async () => {
-    const url = itemsCsvUrl.value.trim();
-    if (!url){ alert('Paste a CSV URL.'); return; }
-    try {
-      const res = await fetch(url, { cache: 'no-store' });
-      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-      const text = await res.text();
-      const list = parseCsvItems(text);
-      if (!list.length) throw new Error('No items found in CSV.');
-      items = list; saveItems(items); renderItemsInput(); alert('Loaded items from URL and saved locally.');
-    } catch (e){ alert('Failed to load CSV: ' + e.message); }
-  });
-  downloadItemsCsvBtn.addEventListener('click', () => {
-    const header = 'Item
-';
-    const csv = header + items.map(i => `"${String(i).replaceAll('"','""')}"`).join('
-');
-    const blob = new Blob([csv], { type:'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a'); a.href=url; a.download='items.csv';
-    document.body.appendChild(a); a.click(); a.remove();
-    URL.revokeObjectURL(url);
-  });
+    const list = itemsInput.value.split(/\n/).map(s => s.trim()).filter(Boolean);
     items = list.length ? list : defaultItems;
     saveItems(items);
     alert('Item list saved.');
@@ -446,65 +341,7 @@
     if (e.key === 'y' || e.key === 'Y') yesBtn.click();
     if (e.key === 'n' || e.key === 'N') noBtn.click();
     if (e.key === 's' || e.key === 'S') skipBtn.click();
-    if (e.key === 'Enter' && document.activeElement === askInput) { askBtn.click(); }
   });
-  // --- Q&A inventory check ---
-  function normalizeText(s){ return (s||'').toLowerCase().replace(/[^a-z0-9\s]/g,' ').replace(/\s+/g,' ').trim(); }
-  function tokenSet(s){ return new Set(normalizeText(s).split(' ').filter(w => w && w.length>1)); }
-  function jaccard(a, b){
-    const A = tokenSet(a), B = tokenSet(b);
-    const inter = [...A].filter(x => B.has(x)).length;
-    const uni = new Set([...A, ...B]).size || 1;
-    const substrBonus = normalizeText(b).includes(normalizeText(a)) || normalizeText(a).includes(normalizeText(b)) ? 0.2 : 0;
-    return inter/uni + substrBonus;
-  }
-  function findBestItem(query){
-    let best = { item:null, score:0 };
-    items.forEach(it => {
-      const s = jaccard(query, it);
-      if (s > best.score) best = { item: it, score: s };
-    });
-    return best.score >= 0.35 ? best.item : null;
-  }
-  function latestAnswerFor(item){
-    for (let i = results.length - 1; i >= 0; i--){
-      if (results[i].item === item) return results[i].answer;
-    }
-    return null;
-  }
-  function handleAsk(){
-    const q = askInput.value.trim();
-    if (!q){ askOutput.textContent = 'Type an item name first.'; return; }
-    const match = findBestItem(q);
-    if (!match){
-      const msg = `I don't see “${q}” in your item list.`;
-      askOutput.textContent = msg; speak(msg);
-      return;
-    }
-    const ans = latestAnswerFor(match);
-    let msg;
-    if (!ans){
-      msg = `“${match}” hasn’t been checked yet.`;
-    } else if (ans === 'yes'){
-      msg = `Yes, you have ${match}.`;
-    } else if (ans === 'no'){
-      msg = `No, you don't have ${match}.`;
-    } else {
-      msg = `“${match}” was skipped during the last check.`;
-    }
-    askOutput.textContent = msg; speak(msg);
-  }
-
-  if (askBtn) askBtn.addEventListener('click', handleAsk);
-  if (askMicBtn) askMicBtn.addEventListener('click', () => {
-    if (!queryRecognition) queryRecognition = setupQueryRecognition();
-    if (queryRecognition){ try { queryRecognition.start(); } catch(_){} }
-    else { alert('Voice input not supported in this browser (requires Chrome/Edge over HTTPS).'); }
-  });
-    if (queryRecognition){ try { queryRecognition.start(); } catch(_){} }
-    else { alert('Voice input not supported in this browser.'); }
-  });
-
 })();
 </script>
 </body>

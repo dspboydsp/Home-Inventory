@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Home Inventory Checker v1.2</title>
+  <style>
+    :root { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; }
+    body { margin: 0; background:#0b1220; color:#e6ecff; }
+    .wrap { max-width: 980px; margin: 0 auto; padding: 24px; }
+    header { display:flex; justify-content:space-between; align-items:center; gap:16px; }
+    h1 { font-size: 24px; margin:0; }
+    .card { background:#121a2b; border:1px solid #1f2a44; border-radius:16px; padding:16px; box-shadow: 0 10px 30px rgba(0,0,0,0.35); }
+    .row { display:flex; gap:12px; flex-wrap:wrap; align-items:center; }
+    button { border:1px solid #33406a; background:#18233a; color:#e6ecff; padding:10px 14px; border-radius:12px; cursor:pointer; font-weight:600; }
+    button:hover { background:#1e2a46; }
+    button:disabled { opacity:0.5; cursor:not-allowed; }
+    textarea, input, select { width:100%; max-width:100%; background:#0f1627; color:#dbe6ff; border:1px solid #283558; border-radius:12px; padding:10px; }
+    .cols { display:grid; grid-template-columns: 1fr; gap:16px; }
+    @media (min-width: 900px) { .cols { grid-template-columns: 1.2fr .8fr; } }
+    table { width:100%; border-collapse:collapse; }
+    th, td { border-bottom:1px solid #243359; padding:8px 6px; font-size:14px; }
+    th { text-align:left; color:#9fb5ff; }
+    .pill { display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; }
+    .yes { background:#0f3; color:#052; }
+    .no { background:#f66; color:#300; }
+    .skip { background:#ffa94d; color:#4a2a00; }
+    .muted { color:#9fb5ff; opacity:.8; }
+    .now { font-variant-numeric: tabular-nums; opacity:.8; }
+    .promptBox { font-size:20px; padding:16px; border-radius:12px; background:#0f1627; border:1px dashed #284276; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>🏠 Home Inventory Checker <span style="font-size:14px; opacity:.7;">v1.2</span></h1>
+      <div class="row">
+        <button id="startBtn">Start</button>
+        <button id="stopBtn" disabled>Stop</button>
+        <button id="exportBtn" title="Download results as CSV" disabled>Export CSV</button>
+      </div>
+    </header>
+
+    <p class="muted">This simple tool asks (by voice) whether you have each item, listens for “yes / no / skip,” and logs the results. Nothing leaves your device.</p>
+
+    <div class="cols">
+      <section class="card">
+        <div class="row" style="justify-content:space-between;">
+          <div>
+            <div class="muted">Current item</div>
+            <div id="currentItem" class="promptBox">—</div>
+          </div>
+          <div>
+            <div class="muted">Controls</div>
+            <div class="row">
+              <button id="yesBtn" disabled>Yes (Y)</button>
+              <button id="noBtn" disabled>No (N)</button>
+              <button id="skipBtn" disabled>Skip (S)</button>
+            </div>
+          </div>
+        </div>
+        <div style="margin-top:12px" class="muted">Heard: <span id="heard">—</span></div>
+        <div style="margin-top:6px" class="muted">Status: <span id="status">idle</span></div>
+      </section>
+
+      <aside class="card">
+        <h3 style="margin-top:0">Item List</h3>
+        <p class="muted">One per line. Edit, then <strong>Save</strong>.</p>
+        <textarea id="itemsInput" rows="12"></textarea>
+        <div class="row" style="margin-top:8px; justify-content:space-between; flex-wrap:wrap;">
+          <button id="saveItemsBtn">Save List</button>
+          <label class="muted" style="display:flex; gap:6px; align-items:center;">
+            <input type="checkbox" id="voiceToggle" /> Voice on
+          </label>
+        </div>
+        <hr style="border:none; border-top:1px solid #243359; margin:12px 0;">
+        <h4 style="margin:8px 0 6px">CSV Options</h4>
+        <div class="row" style="gap:8px;">
+          <input id="itemsCsvFile" type="file" accept=".csv" />
+          <button id="importCsvBtn">Import CSV</button>
+        </div>
+        <div class="row" style="gap:8px; margin-top:8px;">
+          <input id="itemsCsvUrl" placeholder="https://your-domain/items.csv (GitHub Pages OK)" />
+          <button id="loadCsvUrlBtn">Load from URL</button>
+        </div>
+        <div class="row" style="gap:8px; margin-top:8px;">
+          <button id="downloadItemsCsvBtn">Download Items CSV</button>
+        </div>
+        <p class="muted" style="margin-top:8px;">Tip: Host <code>items.csv</code> in a GitHub repo and enable GitHub Pages; paste the CSV URL here and click <em>Load from URL</em>.</p>
+      </aside>
+    </div>
+
+    <section class="card" style="margin-top:16px;">
+      <h3 style="margin-top:0">Ask About an Item</h3>
+      <p class="muted">Type or speak the item name. I’ll answer based on your latest check or say if it’s not on the list.</p>
+      <div class="row" style="align-items:center; gap:8px;">
+        <input id="askInput" placeholder="e.g., AA batteries" />
+        <button id="askBtn">Ask</button>
+        <button id="askMicBtn" title="Ask by voice">🎤</button>
+      </div>
+      <div id="askOutput" class="muted" style="margin-top:8px; min-height: 1.5em;">—</div>
+    </section>
+
+    <section class="card" style="margin-top:16px;">
+      <div class="row" style="justify-content:space-between; align-items:center;">
+        <h3 style="margin:0">Results</h3>
+        <div class="muted now" id="timestamp">—</div>
+      </div>
+      <div style="overflow:auto;">
+        <table id="resultsTable">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Item</th>
+              <th>Answer</th>
+              <th>Heard</th>
+              <th>Time</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <footer style="opacity:.7; margin-top:10px;" class="muted">Local-only. Built with the Web Speech API where available. Works best in Chrome/Edge.</footer>
+  </div>
+
+<script>
+(function(){
+  // --- Persistence helpers ---
+  const LS_ITEMS_KEY = 'hic.items.v1';
+  const LS_RESULTS_KEY = 'hic.results.v1';
+  const LS_SETTINGS_KEY = 'hic.settings.v1';
+
+  const defaultItems = [
+    'AA batteries',
+    'AAA batteries',
+    'Smoke detector batteries',
+    'Light bulbs',
+    'Trash bags',
+    'Paper towels',
+    'Toilet paper',
+    'Dish soap',
+    'Laundry detergent',
+    'First-aid kit',
+    'Pain reliever',
+    'Bandages',
+    'Canned beans',
+    'Rice',
+    'Pasta',
+    'Bottled water',
+    'Pet food',
+    'Flashlight',
+    'Phone charger cable',
+    'Batteries for remotes'
+  ];
+
+  const settings = JSON.parse(localStorage.getItem(LS_SETTINGS_KEY) || '{}');
+  const voiceEnabled = settings.voiceEnabled ?? true;
+
+  function saveSettings(){
+    localStorage.setItem(LS_SETTINGS_KEY, JSON.stringify({ voiceEnabled: voiceToggle.checked }));
+  }
+
+  function loadItems(){
+    try {
+      const raw = localStorage.getItem(LS_ITEMS_KEY);
+      const parsed = raw ? JSON.parse(raw) : null;
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      return defaultItems.slice();
+    } catch { return defaultItems.slice(); }
+  }
+  function saveItems(list){
+    const clean = Array.from(new Set(list.map(s => String(s||'').trim()).filter(Boolean)));
+    localStorage.setItem(LS_ITEMS_KEY, JSON.stringify(clean));
+  }
+
+  function loadResults(){
+    const raw = localStorage.getItem(LS_RESULTS_KEY);
+    return raw ? JSON.parse(raw) : [];
+  }
+  function saveResults(rows){ localStorage.setItem(LS_RESULTS_KEY, JSON.stringify(rows)); }
+
+  // --- DOM refs ---
+  const startBtn = document.getElementById('startBtn');
+  const stopBtn = document.getElementById('stopBtn');
+  const exportBtn = document.getElementById('exportBtn');
+  const yesBtn = document.getElementById('yesBtn');
+  const noBtn = document.getElementById('noBtn');
+  const skipBtn = document.getElementById('skipBtn');
+  const itemsInput = document.getElementById('itemsInput');
+  const saveItemsBtn = document.getElementById('saveItemsBtn');
+  const currentItemEl = document.getElementById('currentItem');
+  const heardEl = document.getElementById('heard');
+  const statusEl = document.getElementById('status');
+  const resultsTableBody = document.querySelector('#resultsTable tbody');
+  const tsEl = document.getElementById('timestamp');
+  const voiceToggle = document.getElementById('voiceToggle');
+  const askInput = document.getElementById('askInput');
+  const askBtn = document.getElementById('askBtn');
+  const askMicBtn = document.getElementById('askMicBtn');
+  const askOutput = document.getElementById('askOutput');
+  const itemsCsvFile = document.getElementById('itemsCsvFile');
+  const importCsvBtn = document.getElementById('importCsvBtn');
+  const itemsCsvUrl = document.getElementById('itemsCsvUrl');
+  const loadCsvUrlBtn = document.getElementById('loadCsvUrlBtn');
+  const downloadItemsCsvBtn = document.getElementById('downloadItemsCsvBtn');
+
+  // --- State ---
+  let items = loadItems();
+  let results = loadResults();
+  let idx = -1;
+  let listening = false;
+  let recognition = null; // for checklist flow
+  let queryRecognition = null; // for Q&A flow
+
+  function fmtNow(){ return new Date().toLocaleString(); }
+
+  function renderItemsInput(){ itemsInput.value = items.join('\n'); }
+  function renderTimestamp(){ tsEl.textContent = `Last opened: ${fmtNow()}`; }
+
+  function renderResults(){
+    resultsTableBody.innerHTML = '';
+    results.forEach((r, i) => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${i+1}</td>
+        <td>${escapeHtml(r.item)}</td>
+        <td>${fmtAnswerPill(r.answer)}</td>
+        <td>${escapeHtml(r.heard || '')}</td>
+        <td class="now">${r.time}</td>
+      `;
+      resultsTableBody.appendChild(tr);
+    });
+    exportBtn.disabled = results.length === 0;
+  }
+
+  function escapeHtml(s){ return (s||'').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
+  function fmtAnswerPill(ans){
+    const m = { yes: 'yes', no: 'no', skip: 'skip' };
+    const cls = ans === 'yes' ? 'yes' : ans === 'no' ? 'no' : 'skip';
+    return `<span class="pill ${cls}">${m[ans] || ans}</span>`;
+  }
+
+  function setControlsRunning(run){
+    startBtn.disabled = run;
+    stopBtn.disabled = !run;
+    yesBtn.disabled = !run;
+    noBtn.disabled = !run;
+    skipBtn.disabled = !run;
+  }
+
+  function speak(text){
+    if (voiceToggle.checked && 'speechSynthesis' in window){
+      const u = new SpeechSynthesisUtterance(text);
+      speechSynthesis.cancel();
+      speechSynthesis.speak(u);
+    }
+  }
+  function ask(text){
+    currentItemEl.textContent = text;
+    speak(`Do you have ${text}?`);
+  }?`);
+      speechSynthesis.cancel();
+      speechSynthesis.speak(u);
+    }
+  }
+
+  function nextItem(){
+    idx += 1;
+    if (idx >= items.length){
+      statusEl.textContent = 'done';
+      setControlsRunning(false);
+      stopListening();
+      return;
+    }
+    heardEl.textContent = '—';
+    statusEl.textContent = `asking (${idx+1}/${items.length})`;
+    ask(items[idx]);
+    startListening();
+  }
+
+  function record(answer, heard){
+    results.push({ item: items[idx], answer, heard: heard || '', time: fmtNow() });
+    saveResults(results);
+    renderResults();
+  }
+
+  function start(){
+    setControlsRunning(true);
+    if (idx < 0) idx = -1; // will increment in nextItem
+    nextItem();
+  }
+
+  function stop(){
+    setControlsRunning(false);
+    statusEl.textContent = 'stopped';
+    stopListening();
+  }
+
+  function clearSession(){ idx = -1; }
+
+  // --- Speech recognition (best-effort) ---
+  function setupRecognition(){
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) return null;
+    const r = new SR();
+    r.lang = 'en-US';
+    r.interimResults = false;
+    r.maxAlternatives = 1;
+    r.continuous = false;
+    r.onstart = () => { listening = true; statusEl.textContent = 'listening…'; };
+    r.onresult = (ev) => {
+      const text = ev.results[0][0].transcript.trim().toLowerCase();
+      heardEl.textContent = text;
+      const ans = parseAnswer(text);
+      if (ans){
+        record(ans, text);
+        stopListening();
+        nextItem();
+      } else {
+        statusEl.textContent = 'didn\'t catch that (say yes / no / skip)';
+        restartListeningSoon();
+      }
+    };
+    r.onerror = () => { statusEl.textContent = 'speech error'; restartListeningSoon(); };
+    r.onend = () => { listening = false; };
+    return r;
+  }
+
+  function setupQueryRecognition(){
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) return null;
+    const r = new SR();
+    r.lang = 'en-US';
+    r.interimResults = false;
+    r.maxAlternatives = 1;
+    r.continuous = false;
+    r.onresult = (ev) => {
+      const raw = ev.results[0][0].transcript.trim();
+      askInput.value = raw;
+      handleAsk();
+    };
+    return r;
+  }
+
+  function parseAnswer(t){
+    if (!t) return null;
+    if (/^(yes|yeah|yep|yup|sure|have|got it)\b/.test(t)) return 'yes';
+    if (/^(no|nope|nah|don\'t|do not|haven\'t|ain\'t)\b/.test(t)) return 'no';
+    if (/^(skip|pass|next)\b/.test(t)) return 'skip';
+    return null;
+  }
+
+  function startListening(){
+    if (!recognition) recognition = setupRecognition();
+    if (recognition && !listening){ try { recognition.start(); } catch(_){} }
+  }
+  function stopListening(){
+    if (recognition && listening){ try { recognition.stop(); } catch(_){} }
+  }
+  function restartListeningSoon(){
+    stopListening();
+    setTimeout(() => startListening(), 400);
+  }
+
+  function exportCSV(){
+    const header = ['#','Item','Answer','Heard','Time'];
+    const rows = results.map((r, i) => [i+1, r.item, r.answer, r.heard, r.time]);
+    const csv = [header, ...rows].map(row => row.map(cell => `"${String(cell).replaceAll('"','""')}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'home_inventory_check.csv';
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  // --- Wire up ---
+  voiceToggle.checked = !!voiceEnabled;
+  voiceToggle.addEventListener('change', saveSettings);
+
+  renderItemsInput();
+  renderResults();
+  renderTimestamp();
+
+  startBtn.addEventListener('click', () => { clearSession(); start(); });
+  stopBtn.addEventListener('click', stop);
+  exportBtn.addEventListener('click', exportCSV);
+
+  saveItemsBtn.addEventListener('click', () => {
+    const list = itemsInput.value.split(/
+/).map(s => s.trim()).filter(Boolean);
+    items = list.length ? list : defaultItems.slice();
+    saveItems(items);
+    renderItemsInput();
+    alert('Item list saved.');
+  });
+
+  // --- CSV helpers ---
+  function parseCsvItems(text){
+    return text.split(/?
+/).map(line => line.split(',')[0]).map(s => s.trim()).filter(Boolean);
+  }
+  importCsvBtn.addEventListener('click', async () => {
+    const file = itemsCsvFile.files && itemsCsvFile.files[0];
+    if (!file) { alert('Choose a CSV file first.'); return; }
+    const text = await file.text();
+    const list = parseCsvItems(text);
+    if (!list.length){ alert('No items found in CSV.'); return; }
+    items = list; saveItems(items); renderItemsInput(); alert('Imported items from CSV.');
+  });
+  loadCsvUrlBtn.addEventListener('click', async () => {
+    const url = itemsCsvUrl.value.trim();
+    if (!url){ alert('Paste a CSV URL.'); return; }
+    try {
+      const res = await fetch(url, { cache: 'no-store' });
+      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+      const text = await res.text();
+      const list = parseCsvItems(text);
+      if (!list.length) throw new Error('No items found in CSV.');
+      items = list; saveItems(items); renderItemsInput(); alert('Loaded items from URL and saved locally.');
+    } catch (e){ alert('Failed to load CSV: ' + e.message); }
+  });
+  downloadItemsCsvBtn.addEventListener('click', () => {
+    const header = 'Item
+';
+    const csv = header + items.map(i => `"${String(i).replaceAll('"','""')}"`).join('
+');
+    const blob = new Blob([csv], { type:'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href=url; a.download='items.csv';
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+  });
+    items = list.length ? list : defaultItems;
+    saveItems(items);
+    alert('Item list saved.');
+  });
+
+  yesBtn.addEventListener('click', () => { if (idx >=0 && idx < items.length){ record('yes','(button)'); nextItem(); } });
+  noBtn.addEventListener('click', () => { if (idx >=0 && idx < items.length){ record('no','(button)'); nextItem(); } });
+  skipBtn.addEventListener('click', () => { if (idx >=0 && idx < items.length){ record('skip','(button)'); nextItem(); } });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'y' || e.key === 'Y') yesBtn.click();
+    if (e.key === 'n' || e.key === 'N') noBtn.click();
+    if (e.key === 's' || e.key === 'S') skipBtn.click();
+    if (e.key === 'Enter' && document.activeElement === askInput) { askBtn.click(); }
+  });
+  // --- Q&A inventory check ---
+  function normalizeText(s){ return (s||'').toLowerCase().replace(/[^a-z0-9\s]/g,' ').replace(/\s+/g,' ').trim(); }
+  function tokenSet(s){ return new Set(normalizeText(s).split(' ').filter(w => w && w.length>1)); }
+  function jaccard(a, b){
+    const A = tokenSet(a), B = tokenSet(b);
+    const inter = [...A].filter(x => B.has(x)).length;
+    const uni = new Set([...A, ...B]).size || 1;
+    const substrBonus = normalizeText(b).includes(normalizeText(a)) || normalizeText(a).includes(normalizeText(b)) ? 0.2 : 0;
+    return inter/uni + substrBonus;
+  }
+  function findBestItem(query){
+    let best = { item:null, score:0 };
+    items.forEach(it => {
+      const s = jaccard(query, it);
+      if (s > best.score) best = { item: it, score: s };
+    });
+    return best.score >= 0.35 ? best.item : null;
+  }
+  function latestAnswerFor(item){
+    for (let i = results.length - 1; i >= 0; i--){
+      if (results[i].item === item) return results[i].answer;
+    }
+    return null;
+  }
+  function handleAsk(){
+    const q = askInput.value.trim();
+    if (!q){ askOutput.textContent = 'Type an item name first.'; return; }
+    const match = findBestItem(q);
+    if (!match){
+      const msg = `I don't see “${q}” in your item list.`;
+      askOutput.textContent = msg; speak(msg);
+      return;
+    }
+    const ans = latestAnswerFor(match);
+    let msg;
+    if (!ans){
+      msg = `“${match}” hasn’t been checked yet.`;
+    } else if (ans === 'yes'){
+      msg = `Yes, you have ${match}.`;
+    } else if (ans === 'no'){
+      msg = `No, you don't have ${match}.`;
+    } else {
+      msg = `“${match}” was skipped during the last check.`;
+    }
+    askOutput.textContent = msg; speak(msg);
+  }
+
+  if (askBtn) askBtn.addEventListener('click', handleAsk);
+  if (askMicBtn) askMicBtn.addEventListener('click', () => {
+    if (!queryRecognition) queryRecognition = setupQueryRecognition();
+    if (queryRecognition){ try { queryRecognition.start(); } catch(_){} }
+    else { alert('Voice input not supported in this browser (requires Chrome/Edge over HTTPS).'); }
+  });
+    if (queryRecognition){ try { queryRecognition.start(); } catch(_){} }
+    else { alert('Voice input not supported in this browser.'); }
+  });
+
+})();
+</script>
+</body>
+</html>

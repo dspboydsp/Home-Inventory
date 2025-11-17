@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Home Inventory Checker</title>
+  <title>Home Inventory Checker v2 (CSV)</title>
   <style>
     :root { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; }
     body { margin: 0; background:#0b1220; color:#e6ecff; }
@@ -23,25 +23,29 @@
     th { text-align:left; color:#9fb5ff; }
     .pill { display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; }
     .yes { background:#0f3; color:#052; }
-    .no { background:#f66; color:#300; }
-    .skip { background:#ffa94d; color:#4a2a00; }
     .muted { color:#9fb5ff; opacity:.8; }
     .now { font-variant-numeric: tabular-nums; opacity:.8; }
     .promptBox { font-size:20px; padding:16px; border-radius:12px; background:#0f1627; border:1px dashed #284276; }
+    .warn { background:#3a1a1a; border:1px solid #6a2a2a; color:#ffd5d5; padding:6px 10px; border-radius:8px; margin-bottom:10px; }
   </style>
 </head>
 <body>
   <div class="wrap">
     <header>
-      <h1>🏠 Home Inventory Checker</h1>
+      <h1>🏠 Home Inventory Checker <span class="muted" style="font-size:14px;">v2 (CSV)</span></h1>
       <div class="row">
         <button id="startBtn">Start</button>
         <button id="stopBtn" disabled>Stop</button>
-        <button id="exportBtn" title="Download results as CSV" disabled>Export CSV</button>
+        <button id="exportBtn" title="Download itemsInInventory.csv" disabled>Download itemsInInventory.csv</button>
       </div>
     </header>
 
-    <p class="muted">This simple tool asks (by voice) whether you have each item, listens for “yes / no / skip,” and logs the results. Nothing leaves your device.</p>
+    <div class="warn">
+      Static GitHub Pages can’t write files. This app updates <code>item.csv</code> and <code>itemsInInventory.csv</code> in memory.
+      Use the download buttons to save updated CSVs, then commit them back to the repo.
+    </div>
+
+    <p class="muted">On <strong>Start</strong>, the item list is loaded from <code>item.csv</code>. If you answer <strong>Yes</strong>, that item is removed from <code>item.csv</code> and added to <code>itemsInInventory.csv</code>. No/Skip leave both files unchanged.</p>
 
     <div class="cols">
       <section class="card">
@@ -61,36 +65,39 @@
         </div>
         <div style="margin-top:12px" class="muted">Heard: <span id="heard">—</span></div>
         <div style="margin-top:6px" class="muted">Status: <span id="status">idle</span></div>
-      </section>
-
-      <aside class="card">
-        <h3 style="margin-top:0">Item List</h3>
-        <p class="muted">One per line. Edit, then <strong>Save</strong>.</p>
-        <textarea id="itemsInput" rows="12"></textarea>
-        <div class="row" style="margin-top:8px; justify-content:space-between;">
-          <button id="saveItemsBtn">Save List</button>
+        <div style="margin-top:8px;">
           <label class="muted" style="display:flex; gap:6px; align-items:center;">
             <input type="checkbox" id="voiceToggle" /> Voice on
           </label>
         </div>
-        <p class="muted">Tip: you can paste a checklist here (e.g., pantry staples, emergency kit, cleaning supplies).</p>
+        <div style="margin-top:8px;" class="muted">
+          Items remaining in <code>item.csv</code>: <span id="remainingCount">0</span>
+        </div>
+        <div style="margin-top:8px;" class="row">
+          <button id="downloadItemsBtn" disabled>Download updated item.csv</button>
+        </div>
+      </section>
+
+      <aside class="card">
+        <h3 style="margin-top:0">Item List (from item.csv)</h3>
+        <p class="muted">Read-only. Edit <code>item.csv</code> in your repo if you want to change this list.</p>
+        <textarea id="itemsInput" rows="12" readonly></textarea>
+        <p class="muted" id="itemsInfo">Not loaded yet. Click Start.</p>
       </aside>
     </div>
 
     <section class="card" style="margin-top:16px;">
       <div class="row" style="justify-content:space-between; align-items:center;">
-        <h3 style="margin:0">Results</h3>
+        <h3 style="margin:0">Results (itemsInInventory.csv)</h3>
         <div class="muted now" id="timestamp">—</div>
       </div>
-      <div style="overflow:auto;">
+      <div class="muted" id="invInfo">—</div>
+      <div style="overflow:auto; margin-top:8px;">
         <table id="resultsTable">
           <thead>
             <tr>
               <th>#</th>
               <th>Item</th>
-              <th>Answer</th>
-              <th>Heard</th>
-              <th>Time</th>
             </tr>
           </thead>
           <tbody></tbody>
@@ -98,57 +105,14 @@
       </div>
     </section>
 
-    <footer style="opacity:.7; margin-top:10px;" class="muted">Local-only. Built with the Web Speech API where available. Works best in Chrome/Edge.</footer>
+    <footer style="opacity:.7; margin-top:10px;" class="muted">Uses Web Speech API where available. Works best in Chrome/Edge over HTTPS (GitHub Pages).</footer>
   </div>
 
 <script>
 (function(){
-  // --- Persistence helpers ---
-  const LS_ITEMS_KEY = 'hic.items.v1';
-  const LS_RESULTS_KEY = 'hic.results.v1';
-  const LS_SETTINGS_KEY = 'hic.settings.v1';
-
-  const defaultItems = [
-    'AA batteries',
-    'AAA batteries',
-    'Smoke detector batteries',
-    'Light bulbs',
-    'Trash bags',
-    'Paper towels',
-    'Toilet paper',
-    'Dish soap',
-    'Laundry detergent',
-    'First-aid kit',
-    'Pain reliever',
-    'Bandages',
-    'Canned beans',
-    'Rice',
-    'Pasta',
-    'Bottled water',
-    'Pet food',
-    'Flashlight',
-    'Phone charger cable',
-    'Batteries for remotes'
-  ];
-
-  const settings = JSON.parse(localStorage.getItem(LS_SETTINGS_KEY) || '{}');
-  const voiceEnabled = settings.voiceEnabled ?? true;
-
-  function saveSettings(){
-    localStorage.setItem(LS_SETTINGS_KEY, JSON.stringify({ voiceEnabled: voiceToggle.checked }));
-  }
-
-  function loadItems(){
-    const raw = localStorage.getItem(LS_ITEMS_KEY);
-    return raw ? JSON.parse(raw) : defaultItems;
-  }
-  function saveItems(list){ localStorage.setItem(LS_ITEMS_KEY, JSON.stringify(list)); }
-
-  function loadResults(){
-    const raw = localStorage.getItem(LS_RESULTS_KEY);
-    return raw ? JSON.parse(raw) : [];
-  }
-  function saveResults(rows){ localStorage.setItem(LS_RESULTS_KEY, JSON.stringify(rows)); }
+  // --- Files ---
+  const ITEMS_CSV = 'item.csv';
+  const INV_CSV   = 'itemsInInventory.csv';
 
   // --- DOM refs ---
   const startBtn = document.getElementById('startBtn');
@@ -158,47 +122,87 @@
   const noBtn = document.getElementById('noBtn');
   const skipBtn = document.getElementById('skipBtn');
   const itemsInput = document.getElementById('itemsInput');
-  const saveItemsBtn = document.getElementById('saveItemsBtn');
+  const itemsInfo = document.getElementById('itemsInfo');
   const currentItemEl = document.getElementById('currentItem');
   const heardEl = document.getElementById('heard');
   const statusEl = document.getElementById('status');
   const resultsTableBody = document.querySelector('#resultsTable tbody');
   const tsEl = document.getElementById('timestamp');
   const voiceToggle = document.getElementById('voiceToggle');
+  const invInfo = document.getElementById('invInfo');
+  const remainingCountEl = document.getElementById('remainingCount');
+  const downloadItemsBtn = document.getElementById('downloadItemsBtn');
+
+  // --- Settings (only voice) ---
+  const LS_SETTINGS_KEY = 'hic.settings.v1';
+  const settings = JSON.parse(localStorage.getItem(LS_SETTINGS_KEY) || '{}');
+  const voiceEnabled = settings.voiceEnabled ?? true;
+
+  function saveSettings(){
+    localStorage.setItem(LS_SETTINGS_KEY, JSON.stringify({ voiceEnabled: voiceToggle.checked }));
+  }
 
   // --- State ---
-  let items = loadItems();
-  let results = loadResults();
+  let items = [];      // current items from item.csv (mutable)
+  let inventory = [];  // current items from itemsInInventory.csv (mutable)
   let idx = -1;
   let listening = false;
   let recognition = null;
 
   function fmtNow(){ return new Date().toLocaleString(); }
+  function escapeHtml(s){ return (s||'').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
 
-  function renderItemsInput(){ itemsInput.value = items.join('\n'); }
-  function renderTimestamp(){ tsEl.textContent = `Last opened: ${fmtNow()}`; }
-
-  function renderResults(){
-    resultsTableBody.innerHTML = '';
-    results.forEach((r, i) => {
-      const tr = document.createElement('tr');
-      tr.innerHTML = `
-        <td>${i+1}</td>
-        <td>${escapeHtml(r.item)}</td>
-        <td>${fmtAnswerPill(r.answer)}</td>
-        <td>${escapeHtml(r.heard || '')}</td>
-        <td class="now">${r.time}</td>
-      `;
-      resultsTableBody.appendChild(tr);
-    });
-    exportBtn.disabled = results.length === 0;
+  function parseItemsCsv(text){
+    // simple 1-column CSV: header "Item" optional, rest are item names
+    return text.split(/\r?\n/)
+      .map(line => line.split(',')[0])
+      .map(s => s.trim())
+      .filter(Boolean)
+      .filter(row => row.toLowerCase() !== 'item');
   }
 
-  function escapeHtml(s){ return (s||'').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
-  function fmtAnswerPill(ans){
-    const m = { yes: 'yes', no: 'no', skip: 'skip' };
-    const cls = ans === 'yes' ? 'yes' : ans === 'no' ? 'no' : 'skip';
-    return `<span class="pill ${cls}">${m[ans] || ans}</span>`;
+  async function fetchCsv(path, allow404=false){
+    try{
+      const res = await fetch(path + '?_=' + Date.now(), { cache:'no-store' });
+      if (!res.ok){
+        if (allow404 && res.status === 404) return [];
+        throw new Error(res.status + ' ' + res.statusText);
+      }
+      const text = await res.text();
+      return parseItemsCsv(text);
+    } catch (e){
+      if (allow404) return [];
+      throw e;
+    }
+  }
+
+  function renderItems(){
+    itemsInput.value = items.join('\n');
+    itemsInfo.textContent = items.length
+      ? `${items.length} item(s) loaded from ${ITEMS_CSV}`
+      : `No items found in ${ITEMS_CSV}`;
+    remainingCountEl.textContent = items.length;
+    downloadItemsBtn.disabled = items.length === 0;
+  }
+
+  function renderInventory(){
+    resultsTableBody.innerHTML = '';
+    inventory.forEach((item, i) => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${i+1}</td><td>${escapeHtml(item)}</td>`;
+      resultsTableBody.appendChild(tr);
+    });
+    invInfo.textContent = `${inventory.length} item(s) in itemsInInventory.csv`;
+    exportBtn.disabled = inventory.length === 0;
+  }
+
+  function speak(text){
+    if (voiceToggle.checked && 'speechSynthesis' in window){
+      try {
+        speechSynthesis.cancel();
+        speechSynthesis.speak(new SpeechSynthesisUtterance(text));
+      } catch(_) {}
+    }
   }
 
   function setControlsRunning(run){
@@ -211,11 +215,7 @@
 
   function ask(text){
     currentItemEl.textContent = text;
-    if (voiceToggle.checked && 'speechSynthesis' in window){
-      const u = new SpeechSynthesisUtterance(`Do you have ${text}?`);
-      speechSynthesis.cancel();
-      speechSynthesis.speak(u);
-    }
+    speak(`Do you have ${text}?`);
   }
 
   function nextItem(){
@@ -232,22 +232,35 @@
     startListening();
   }
 
+  function arrayHasInsensitive(arr, val){
+    const v = String(val).toLowerCase();
+    return arr.some(x => String(x).toLowerCase() === v);
+  }
+  function removeInsensitive(arr, val){
+    const v = String(val).toLowerCase();
+    const i = arr.findIndex(x => String(x).toLowerCase() === v);
+    if (i >= 0) arr.splice(i, 1);
+  }
+
+  // answer: 'yes' | 'no' | 'skip'
   function record(answer, heard){
-    results.push({ item: items[idx], answer, heard: heard || '', time: fmtNow() });
-    saveResults(results);
-    renderResults();
-  }
+    const item = items[idx];
 
-  function start(){
-    setControlsRunning(true);
-    if (idx < 0) idx = -1; // will increment in nextItem
-    nextItem();
-  }
+    if (answer === 'yes'){
+      // Move to itemsInInventory.csv (in memory)
+      if (!arrayHasInsensitive(inventory, item)){
+        inventory.push(item);
+      }
+      // Remove from item.csv list (in memory)
+      removeInsensitive(items, item);
+      idx -= 1;           // because the array just shrank before we call nextItem
+      renderItems();
+      renderInventory();
+    }
 
-  function stop(){
-    setControlsRunning(false);
-    statusEl.textContent = 'stopped';
-    stopListening();
+    // For 'no' or 'skip': do nothing to either file; item stays in items list.
+
+    if (heard) heardEl.textContent = heard;
   }
 
   function clearSession(){ idx = -1; }
@@ -264,15 +277,14 @@
     r.onstart = () => { listening = true; statusEl.textContent = 'listening…'; };
     r.onresult = (ev) => {
       const text = ev.results[0][0].transcript.trim().toLowerCase();
-      heardEl.textContent = text;
       const ans = parseAnswer(text);
       if (ans){
         record(ans, text);
         stopListening();
         nextItem();
       } else {
+        heardEl.textContent = text;
         statusEl.textContent = 'didn\'t catch that (say yes / no / skip)';
-        // briefly listen again
         restartListeningSoon();
       }
     };
@@ -301,37 +313,67 @@
     setTimeout(() => startListening(), 400);
   }
 
-  function exportCSV(){
-    const header = ['#','Item','Answer','Heard','Time'];
-    const rows = results.map((r, i) => [i+1, r.item, r.answer, r.heard, r.time]);
-    const csv = [header, ...rows].map(row => row.map(cell => `"${String(cell).replaceAll('"','""')}"`).join(',')).join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
+  // Download helpers
+  function downloadCsv(filename, itemsArr){
+    const header = 'Item\n';
+    const csv = header + itemsArr.map(i => `"${String(i).replaceAll('"','""')}"`).join('\n');
+    const blob = new Blob([csv], { type:'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url; a.download = 'home_inventory_check.csv';
+    a.href = url; a.download = filename;
     document.body.appendChild(a); a.click(); a.remove();
     URL.revokeObjectURL(url);
+  }
+
+  function exportInventoryCsv(){
+    downloadCsv(INV_CSV, inventory);
+  }
+
+  function downloadItemsCsv(){
+    downloadCsv(ITEMS_CSV, items);
   }
 
   // --- Wire up ---
   voiceToggle.checked = !!voiceEnabled;
   voiceToggle.addEventListener('change', saveSettings);
 
-  itemsInput.value = '';
-  renderItemsInput();
-  renderResults();
-  renderTimestamp();
+  tsEl.textContent = `Last opened: ${fmtNow()}`;
+  invInfo.textContent = 'Results come from itemsInInventory.csv';
 
-  startBtn.addEventListener('click', () => { clearSession(); start(); });
-  stopBtn.addEventListener('click', stop);
-  exportBtn.addEventListener('click', exportCSV);
+  startBtn.addEventListener('click', async () => {
+    clearSession();
+    setControlsRunning(false);
+    statusEl.textContent = 'loading CSV files…';
+    try {
+      // LOAD FROM FILES EACH TIME YOU START
+      items = await fetchCsv(ITEMS_CSV, /*allow404*/ false);
+      inventory = await fetchCsv(INV_CSV, /*allow404*/ true);
+    } catch (e){
+      statusEl.textContent = `Error loading CSVs: ${e.message}`;
+      items = [];
+      inventory = [];
+    }
+    renderItems();
+    renderInventory();
 
-  saveItemsBtn.addEventListener('click', () => {
-    const list = itemsInput.value.split(/\n/).map(s => s.trim()).filter(Boolean);
-    items = list.length ? list : defaultItems;
-    saveItems(items);
-    alert('Item list saved.');
+    if (!items.length){
+      statusEl.textContent = `No items to ask. Check ${ITEMS_CSV} in the repo.`;
+      return;
+    }
+
+    statusEl.textContent = 'starting…';
+    setControlsRunning(true);
+    nextItem();
   });
+
+  stopBtn.addEventListener('click', () => {
+    setControlsRunning(false);
+    statusEl.textContent = 'stopped';
+    stopListening();
+  });
+
+  exportBtn.addEventListener('click', exportInventoryCsv);
+  downloadItemsBtn.addEventListener('click', downloadItemsCsv);
 
   yesBtn.addEventListener('click', () => { if (idx >=0 && idx < items.length){ record('yes','(button)'); nextItem(); } });
   noBtn.addEventListener('click', () => { if (idx >=0 && idx < items.length){ record('no','(button)'); nextItem(); } });
